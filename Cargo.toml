@@ -5,3 +5,4 @@ authors = ["Ophir LOJKINE <o.lojkine@qwant.com>"]
 
 [dependencies]
 nom-sql = { git = "https://github.com/lovasoa/nom-sql" }
+encoding = "0.2"

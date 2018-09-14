@@ -1,4 +1,5 @@
 extern crate nom_sql;
+extern crate encoding;
 
 use std::io::{self, BufRead};
 use nom_sql::{
@@ -8,6 +9,9 @@ use nom_sql::{
     Table,
     Literal
 };
+
+use encoding::{Encoding, DecoderTrap};
+use encoding::all::UTF_8;
 
 fn extract_data(input: &str) -> Option<Vec<Vec<Literal>>> {
     match parse_query(input) {
@@ -34,11 +38,15 @@ fn process_line(input: &str) -> Vec<String> {
 
 fn main() {
     let stdin = io::stdin();
-    for line in stdin.lock().lines() {
-        match line {
-            Ok(ref line_str) => {
-                for url in process_line(line_str) {
-                    println!("{}", url);
+    for line_result in stdin.lock().split(b'\n') {
+        match line_result {
+            Ok(ref line_bytes) => {
+                if let Ok(line_str) = UTF_8.decode(line_bytes, DecoderTrap::Replace) {
+                    for url in process_line(&line_str) {
+                        println!("{}", url);
+                    }
+                } else {
+                    eprintln!("Unable to decode the line (should never happen).");
                 }
             },
             Err(err) => {
