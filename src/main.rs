@@ -16,7 +16,7 @@ fn extract_data(input: &str) -> Option<Vec<Vec<Literal>>> {
                 data, ..
         })) => if name == "externallinks" {Some(data)} else {None},
         parsed => {
-            eprintln!("Not a valid import statement: {:?}", parsed);
+            eprintln!("Not a valid import statement: {} ({:?})", input, parsed);
             None
         }
     }
@@ -35,9 +35,15 @@ fn process_line(input: &str) -> Vec<String> {
 fn main() {
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
-        let line_str = &*line.unwrap();
-        for url in process_line(line_str) {
-            println!("{}", url);
+        match line {
+            Ok(ref line_str) => {
+                for url in process_line(line_str) {
+                    println!("{}", url);
+                }
+            },
+            Err(err) => {
+                eprintln!("Unable to read line: {}", err);
+            }
         }
     }
 }
