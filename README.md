@@ -8,7 +8,7 @@ On linux:
 
 ```sh
 LANG=en
-wget 'https://github.com/lovasoa/wikipedia-externallinks-fast-extraction/releases/download/0.1.0/wikipedia-externallinks-fast-extraction'
+wget 'https://github.com/lovasoa/wikipedia-externallinks-fast-extraction/releases/download/0.1.1/wikipedia-externallinks-fast-extraction'
 curl 'https://dumps.wikimedia.org/'$LANG'wiki/latest/'$LANG'wiki-latest-externallinks.sql.gz' |
 	gunzip |
 	./wikipedia-externallinks-fast-extraction > urls.txt
