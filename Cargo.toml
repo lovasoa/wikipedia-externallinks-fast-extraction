@@ -1,0 +1,7 @@
+[package]
+name = "wikipedia-externallinks-fast-extraction"
+version = "0.1.0"
+authors = ["Ophir LOJKINE <o.lojkine@qwant.com>"]
+
+[dependencies]
+nom-sql = "0.0.3"
