@@ -7,7 +7,7 @@ use nom_sql::{
     SqlQuery::Insert,
     InsertStatement,
     Table,
-    Literal
+    Literal,
 };
 
 use encoding::{Encoding, DecoderTrap};
@@ -16,9 +16,9 @@ use encoding::all::UTF_8;
 fn extract_data(input: &str) -> Option<Vec<Vec<Literal>>> {
     match parse_query(input) {
         Ok(Insert(InsertStatement {
-                table: Table {name, ..},
-                data, ..
-        })) => if name == "externallinks" {Some(data)} else {None},
+                      table: Table { name, .. },
+                      data, ..
+                  })) => if name == "externallinks" { Some(data) } else { None },
         parsed => {
             eprintln!("Not a valid import statement: {} ({:?})", input, parsed);
             None
@@ -49,7 +49,7 @@ fn main() {
                 } else {
                     eprintln!("Unable to decode the line (should never happen).");
                 }
-            },
+            }
             Err(err) => {
                 eprintln!("Unable to read line: {}", err);
             }
