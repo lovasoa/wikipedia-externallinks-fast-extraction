@@ -31,7 +31,7 @@ fn process_line(input: &str) -> impl Iterator<Item=String> {
     extract_data(input).into_iter()
         .flat_map(|data| data.into_iter())
         .filter(move |v| v.len() >= target_index + 1)
-        .flat_map(move |mut v| match v.swap_remove(target_index) {
+        .filter_map(move |mut v| match v.swap_remove(target_index) {
             Literal::String(s) => Some(s),
             _ => None
         })
