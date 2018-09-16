@@ -26,14 +26,15 @@ fn extract_data(input: &str) -> Option<Vec<Vec<Literal>>> {
     }
 }
 
-fn process_line(input: &str) -> Vec<String> {
-    extract_data(input).iter()
-        .flat_map(|data| data.iter())
-        .flat_map(|v| match v.get(2) {
-            Some(Literal::String(s)) => Some(s.clone()),
+fn process_line(input: &str) -> impl Iterator<Item=String> {
+    let target_index = 2;
+    extract_data(input).into_iter()
+        .flat_map(|data| data.into_iter())
+        .filter(move |v| v.len() >= target_index + 1)
+        .flat_map(move |mut v| match v.swap_remove(target_index) {
+            Literal::String(s) => Some(s),
             _ => None
         })
-        .collect()
 }
 
 fn main() {
