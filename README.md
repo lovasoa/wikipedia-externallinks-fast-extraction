@@ -16,7 +16,8 @@ chmod +x wikipedia-externallinks-fast-extraction
 ```
 
 #### Extract links
-```
+
+```sh
 LANG=en
 curl 'https://dumps.wikimedia.org/'$LANG'wiki/latest/'$LANG'wiki-latest-externallinks.sql.gz' |
 	gunzip |
