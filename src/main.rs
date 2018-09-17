@@ -26,7 +26,7 @@ fn extract_data(input: &str) -> Option<Vec<Vec<Literal>>> {
     }
 }
 
-fn process_line(input: &str) -> impl Iterator<Item=String> {
+fn extract_urls_from_statement(input: &str) -> impl Iterator<Item=String> {
     let target_index = 2;
     extract_data(input).into_iter()
         .flat_map(|data| data.into_iter())
@@ -37,17 +37,38 @@ fn process_line(input: &str) -> impl Iterator<Item=String> {
         })
 }
 
+fn print_urls_from_statement(statement_bytes: &Vec<u8>) {
+    if let Ok(statement_str) = UTF_8.decode(statement_bytes, DecoderTrap::Replace) {
+        for url in extract_urls_from_statement(&statement_str) {
+            println!("{}", url);
+        }
+    } else {
+        eprintln!("Unable to decode the line (should never happen).");
+    }
+}
+
+fn is_comment(line_bytes: &Vec<u8>) -> bool {
+    line_bytes.starts_with(b"--") ||
+        line_bytes.starts_with(b"/*")
+}
+
+fn is_complete_statement(statement: &Vec<u8>) -> bool {
+    statement.ends_with(b";")
+}
+
 fn main() {
     let stdin = io::stdin();
-    for line_result in stdin.lock().split(b'\n') {
+    let mut current_statement : Vec<u8> = Vec::with_capacity(1024);
+
+    for mut line_result in stdin.lock().split(b'\n') {
         match line_result {
-            Ok(ref line_bytes) => {
-                if let Ok(line_str) = UTF_8.decode(line_bytes, DecoderTrap::Replace) {
-                    for url in process_line(&line_str) {
-                        println!("{}", url);
+            Ok(ref mut line_bytes) => {
+                if !is_comment(line_bytes) {
+                    current_statement.append(line_bytes);
+                    if is_complete_statement(&current_statement) {
+                        print_urls_from_statement(&current_statement);
+                        current_statement.clear();
                     }
-                } else {
-                    eprintln!("Unable to decode the line (should never happen).");
                 }
             }
             Err(err) => {
