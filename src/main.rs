@@ -1,28 +1,22 @@
 extern crate nom_sql;
 
-use std::io::{self, BufRead};
 use nom_sql::{
+    InsertStatement,
+    Literal,
     parser,
     parser::SqlQuery,
     SqlQuery::Insert,
-    InsertStatement,
     Table,
-    Literal,
 };
+use std::io::{self, BufRead};
 
-fn parse_query(bytes: &[u8]) -> Option<SqlQuery> {
-    match parser::parse_query(bytes) {
-        nom::internal::IResult::Done(_, query) => Some(query),
-        _ => None
-    }
-}
 
 fn extract_data(query: SqlQuery) -> Option<Vec<Vec<Literal>>> {
     match query {
         Insert(InsertStatement {
-                      table: Table { name, .. },
-                      data, ..
-                  }) => if name == "externallinks" { Some(data) } else { None },
+                   table: Table { name, .. },
+                   data, ..
+               }) => if name == "externallinks" { Some(data) } else { None },
         parsed => {
             eprintln!("Not an import statement: {:?}", parsed);
             None
@@ -30,7 +24,7 @@ fn extract_data(query: SqlQuery) -> Option<Vec<Vec<Literal>>> {
     }
 }
 
-fn extract_target_string(mut values: Vec<Literal>, target:usize) -> Option<String> {
+fn extract_target_string(mut values: Vec<Literal>, target: usize) -> Option<String> {
     if values.len() <= target {
         eprintln!("Too few inserted values: {:?}", values);
         None
@@ -53,7 +47,7 @@ fn extract_urls_from_statement(input: SqlQuery) -> impl Iterator<Item=String> {
 }
 
 fn print_urls_from_statement(statement_bytes: &Vec<u8>) {
-    if let Some(query) = parse_query(statement_bytes) {
+    if let Ok(query) = parser::parse_query_bytes(statement_bytes) {
         for url in extract_urls_from_statement(query) {
             println!("{}", url);
         }
@@ -73,7 +67,7 @@ fn is_complete_statement(statement: &Vec<u8>) -> bool {
 
 fn main() {
     let stdin = io::stdin();
-    let mut current_statement : Vec<u8> = Vec::with_capacity(1024);
+    let mut current_statement: Vec<u8> = Vec::with_capacity(1024);
 
     for mut line_result in stdin.lock().split(b'\n') {
         match line_result {
