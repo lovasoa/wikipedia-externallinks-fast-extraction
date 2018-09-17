@@ -1,49 +1,64 @@
 extern crate nom_sql;
-extern crate encoding;
 
 use std::io::{self, BufRead};
 use nom_sql::{
-    parser::parse_query,
+    parser,
+    parser::SqlQuery,
     SqlQuery::Insert,
     InsertStatement,
     Table,
     Literal,
 };
 
-use encoding::{Encoding, DecoderTrap};
-use encoding::all::UTF_8;
+fn parse_query(bytes: &[u8]) -> Option<SqlQuery> {
+    match parser::parse_query(bytes) {
+        nom::internal::IResult::Done(_, query) => Some(query),
+        _ => None
+    }
+}
 
-fn extract_data(input: &str) -> Option<Vec<Vec<Literal>>> {
-    match parse_query(input) {
-        Ok(Insert(InsertStatement {
+fn extract_data(query: SqlQuery) -> Option<Vec<Vec<Literal>>> {
+    match query {
+        Insert(InsertStatement {
                       table: Table { name, .. },
                       data, ..
-                  })) => if name == "externallinks" { Some(data) } else { None },
+                  }) => if name == "externallinks" { Some(data) } else { None },
         parsed => {
-            eprintln!("Not a valid import statement: {} ({:?})", input, parsed);
+            eprintln!("Not an import statement: {:?}", parsed);
             None
         }
     }
 }
 
-fn extract_urls_from_statement(input: &str) -> impl Iterator<Item=String> {
+fn extract_target_string(mut values: Vec<Literal>, target:usize) -> Option<String> {
+    if values.len() <= target {
+        eprintln!("Too few inserted values: {:?}", values);
+        None
+    } else {
+        match values.swap_remove(target) {
+            Literal::String(s) => Some(s),
+            non_string_val => {
+                eprintln!("Invalid inserted value type: {:?} (at index {})", non_string_val, target);
+                None
+            }
+        }
+    }
+}
+
+fn extract_urls_from_statement(input: SqlQuery) -> impl Iterator<Item=String> {
     let target_index = 2;
     extract_data(input).into_iter()
         .flat_map(|data| data.into_iter())
-        .filter(move |v| v.len() >= target_index + 1)
-        .filter_map(move |mut v| match v.swap_remove(target_index) {
-            Literal::String(s) => Some(s),
-            _ => None
-        })
+        .filter_map(move |v| extract_target_string(v, target_index))
 }
 
 fn print_urls_from_statement(statement_bytes: &Vec<u8>) {
-    if let Ok(statement_str) = UTF_8.decode(statement_bytes, DecoderTrap::Replace) {
-        for url in extract_urls_from_statement(&statement_str) {
+    if let Some(query) = parse_query(statement_bytes) {
+        for url in extract_urls_from_statement(query) {
             println!("{}", url);
         }
     } else {
-        eprintln!("Unable to decode the line (should never happen).");
+        eprintln!("Unable to parse the sql statement.");
     }
 }
 
