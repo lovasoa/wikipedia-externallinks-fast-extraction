@@ -59,13 +59,6 @@ fn extract_urls_from_statement(input: SqlQuery) -> Box<Iterator<Item=Result<Stri
     }
 }
 
-fn get_urls_from_statement(statement_bytes: &Vec<u8>) -> Box<Iterator<Item=Result<String, String>>> {
-    match parser::parse_query_bytes(statement_bytes) {
-        Ok(query) => extract_urls_from_statement(query),
-        Err(err) => single_error_iterator(err.to_string())
-    }
-}
-
 fn is_comment(line_bytes: &Vec<u8>) -> bool {
     line_bytes.starts_with(b"--") ||
         line_bytes.starts_with(b"/*") ||
@@ -76,20 +69,42 @@ fn is_complete_statement(statement: &Vec<u8>) -> bool {
     statement.ends_with(b";")
 }
 
+#[derive(Debug)]
+struct ScanState {
+    current_statement: Vec<u8>,
+    target_field: Option<usize>,
+}
+
+impl ScanState {
+    fn new() -> ScanState {
+        ScanState {
+            current_statement: Vec::with_capacity(1024),
+            target_field: None,
+        }
+    }
+
+    fn add_line(&mut self, line_bytes: &mut Vec<u8>) -> Option<Result<SqlQuery, &'static str>> {
+        if is_comment(line_bytes) { None } else {
+            self.current_statement.append(line_bytes);
+            if is_complete_statement(&self.current_statement) {
+                let parsed_sql = parser::parse_query_bytes(&self.current_statement);
+                self.current_statement.clear();
+                Some(parsed_sql)
+            } else { None }
+        }
+    }
+}
+
 fn scan_binary_lines(
-    current_statement: &mut Vec<u8>,
+    scan_state: &mut ScanState,
     mut line_result: Result<Vec<u8>, Error>,
 ) -> Option<Box<Iterator<Item=Result<String, String>>>> {
-    let empty_response: Option<Box<(dyn Iterator<Item=_>)>> = Some(Box::new(empty()));
     match line_result {
         Ok(ref mut line_bytes) => {
-            if is_comment(line_bytes) { empty_response } else {
-                current_statement.append(line_bytes);
-                if is_complete_statement(&current_statement) {
-                    let urls = get_urls_from_statement(&current_statement);
-                    current_statement.clear();
-                    Some(urls)
-                } else { empty_response }
+            match scan_state.add_line(line_bytes) {
+                Some(Ok(statement)) => Some(extract_urls_from_statement(statement)),
+                Some(Err(s)) => Some(single_error_iterator(format!("Unable to parse sql: {}", s))),
+                None => Some(Box::new(empty()))
             }
         }
         Err(err) => Some(single_error_iterator(format!("Unable to read line: {}", err)))
@@ -97,8 +112,7 @@ fn scan_binary_lines(
 }
 
 pub fn iter_string_urls<T: BufRead>(input: T) -> impl Iterator<Item=Result<String, String>> {
-    input.split(b'\n').scan(
-        Vec::with_capacity(1024),
-        scan_binary_lines,
-    ).flatten()
+    input.split(b'\n')
+        .scan(ScanState::new(), scan_binary_lines)
+        .flatten()
 }
