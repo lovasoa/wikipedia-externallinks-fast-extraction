@@ -6,29 +6,65 @@ use nom_sql::{
     parser,
     parser::SqlQuery,
     SqlQuery::Insert,
+    SqlQuery::CreateTable,
     Table,
 };
 use std::io::BufRead;
 use std::io::Error;
 use std::iter::empty;
+use ::ExtractedSql::InsertData;
+use nom_sql::CreateTableStatement;
+use nom_sql::ColumnSpecification;
+use nom_sql::Column;
 
 
-fn extract_data(query: SqlQuery) -> Result<Vec<Vec<Literal>>, String> {
+enum ExtractedSql {
+    InsertData(Vec<Vec<Literal>>),
+    CreateTableData(usize),
+    Error(String),
+}
+
+fn extract_data(query: SqlQuery) -> ExtractedSql {
     match query {
         Insert(InsertStatement {
                    table: Table { name, .. },
                    data, ..
                }) => {
             if name == "externallinks" {
-                Ok(data)
+                InsertData(data)
             } else {
-                Err(format!("Wrong table: '{}'", name))
+                ExtractedSql::Error(format!("Wrong table: '{}'", name))
+            }
+        },
+        CreateTable(CreateTableStatement {
+                        table: Table { name, .. },
+                        fields,
+                        ..
+                    }) => {
+            if name == "externallinks" {
+                match find_target_field_index(fields) {
+                    Some(i) => ExtractedSql::CreateTableData(i),
+                    None => ExtractedSql::Error(format!("Target field not found"))
+                }
+            } else {
+                ExtractedSql::Error(format!("Wrong table: '{}'", name))
             }
         }
         parsed => {
-            Err(format!("Not an import statement: {:?}", parsed))
+            ExtractedSql::Error(format!("Not an import statement: {:?}", parsed))
         }
     }
+}
+
+fn find_target_field_index(fields: Vec<ColumnSpecification>) -> Option<usize> {
+    fields.iter()
+        .position(|spec| {
+            let ColumnSpecification {
+                column: Column { name, .. },
+                ..
+            } = spec;
+            name == "el_to"
+        })
 }
 
 fn extract_target_string(mut values: Vec<Literal>, target: usize) -> Result<String, String> {
@@ -48,15 +84,12 @@ fn single_error_iterator<T: 'static>(s: String) -> Box<Iterator<Item=Result<T, S
     Box::new(std::iter::once(Err(s)))
 }
 
-fn extract_urls_from_statement(input: SqlQuery) -> Box<Iterator<Item=Result<String, String>>> {
-    let target_index = 2;
-    match extract_data(input) {
-        Ok(insert_data) => Box::new(
-            insert_data.into_iter()
-                .map(move |v| extract_target_string(v, target_index))
-        ),
-        Err(s) => single_error_iterator(s)
-    }
+fn extract_urls_from_insert_data(
+    data: Vec<Vec<Literal>>,
+    target_index: usize,
+) -> impl Iterator<Item=Result<String, String>> {
+    data.into_iter()
+        .map(move |v| extract_target_string(v, target_index))
 }
 
 fn is_comment(line_bytes: &Vec<u8>) -> bool {
@@ -75,6 +108,12 @@ struct ScanState {
     target_field: Option<usize>,
 }
 
+enum ScanLineAction {
+    Pass,
+    ReportError(String),
+    ExtractFrom(Vec<Vec<Literal>>, usize),
+}
+
 impl ScanState {
     fn new() -> ScanState {
         ScanState {
@@ -83,14 +122,32 @@ impl ScanState {
         }
     }
 
-    fn add_line(&mut self, line_bytes: &mut Vec<u8>) -> Option<Result<SqlQuery, &'static str>> {
-        if is_comment(line_bytes) { None } else {
+    fn add_line(&mut self, line_bytes: &mut Vec<u8>) -> ScanLineAction {
+        if is_comment(line_bytes) {
+            ScanLineAction::Pass
+        } else {
             self.current_statement.append(line_bytes);
             if is_complete_statement(&self.current_statement) {
                 let parsed_sql = parser::parse_query_bytes(&self.current_statement);
                 self.current_statement.clear();
-                Some(parsed_sql)
-            } else { None }
+                match parsed_sql {
+                    Ok(sql) => match extract_data(sql) {
+                        InsertData(data) => {
+                            if let Some(i) = self.target_field {
+                                ScanLineAction::ExtractFrom(data, i)
+                            } else {
+                                ScanLineAction::ReportError("Insert statement before create table".into())
+                            }
+                        },
+                        ExtractedSql::CreateTableData(index) => {
+                            self.target_field = Some(index);
+                            ScanLineAction::Pass
+                        },
+                        ExtractedSql::Error(err) => ScanLineAction::ReportError(err),
+                    },
+                    Err(s) => ScanLineAction::ReportError(s.to_string())
+                }
+            } else { ScanLineAction::Pass }
         }
     }
 }
@@ -102,9 +159,9 @@ fn scan_binary_lines(
     match line_result {
         Ok(ref mut line_bytes) => {
             match scan_state.add_line(line_bytes) {
-                Some(Ok(statement)) => Some(extract_urls_from_statement(statement)),
-                Some(Err(s)) => Some(single_error_iterator(format!("Unable to parse sql: {}", s))),
-                None => Some(Box::new(empty()))
+                ScanLineAction::ExtractFrom(data, i) => Some(Box::new(extract_urls_from_insert_data(data, i))),
+                ScanLineAction::ReportError(s) => Some(single_error_iterator(s)),
+                ScanLineAction::Pass => Some(Box::new(empty()))
             }
         }
         Err(err) => Some(single_error_iterator(format!("Unable to read line: {}", err)))
