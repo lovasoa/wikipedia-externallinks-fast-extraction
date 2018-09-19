@@ -17,8 +17,15 @@ use nom_sql::CreateTableStatement;
 use nom_sql::ColumnSpecification;
 use nom_sql::Column;
 
-const TARGET_TABLE_NAME: &'static str = "externallinks";
-const TARGET_COLUMN_NAME: &'static str = "el_to";
+struct TargetColumn<'a> {
+    name: &'a str,
+    table: &'a str
+}
+
+const TARGET_COLUMN: TargetColumn<'static> = TargetColumn {
+    name: "el_to",
+    table: "externallinks"
+};
 
 enum ExtractedSql {
     InsertData(Vec<Vec<Literal>>),
@@ -32,7 +39,7 @@ fn extract_data(query: SqlQuery) -> ExtractedSql {
                    table: Table { name, .. },
                    data, ..
                }) => {
-            if name == TARGET_TABLE_NAME {
+            if name == TARGET_COLUMN.table {
                 InsertData(data)
             } else {
                 ExtractedSql::Error(format!("Wrong table: '{}'", name))
@@ -43,7 +50,7 @@ fn extract_data(query: SqlQuery) -> ExtractedSql {
                         fields,
                         ..
                     }) => {
-            if name == TARGET_TABLE_NAME {
+            if name == TARGET_COLUMN.table {
                 match find_target_field_index(fields) {
                     Some(i) => ExtractedSql::CreateTableData(i),
                     None => ExtractedSql::Error(format!("Target field not found"))
@@ -65,7 +72,7 @@ fn find_target_field_index(fields: Vec<ColumnSpecification>) -> Option<usize> {
                 column: Column { name, .. },
                 ..
             } = spec;
-            name == TARGET_COLUMN_NAME
+            name == TARGET_COLUMN.name
         })
 }
 
