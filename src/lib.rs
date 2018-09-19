@@ -17,8 +17,8 @@ use nom_sql::CreateTableStatement;
 use nom_sql::ColumnSpecification;
 use nom_sql::Column;
 
-static TARGET_TABLE_NAME: &'static str = "externallinks";
-static TARGET_COLUMN_NAME: &'static str = "el_to";
+const TARGET_TABLE_NAME: &'static str = "externallinks";
+const TARGET_COLUMN_NAME: &'static str = "el_to";
 
 enum ExtractedSql {
     InsertData(Vec<Vec<Literal>>),
