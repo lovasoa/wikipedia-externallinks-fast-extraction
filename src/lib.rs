@@ -138,8 +138,7 @@ impl ScanState {
             self.current_statement.append(line_bytes);
             if is_complete_statement(&self.current_statement) {
                 let parsed_sql = parser::parse_query_bytes(&self.current_statement);
-                self.current_statement.clear();
-                match parsed_sql {
+                let scan_result = match parsed_sql {
                     Ok(sql) => match extract_data(sql) {
                         InsertData(data) => {
                             if let Some(i) = self.target_field {
@@ -154,8 +153,11 @@ impl ScanState {
                         },
                         ExtractedSql::Error(err) => ScanLineAction::ReportError(err),
                     },
-                    Err(s) => ScanLineAction::ReportError(s.to_string())
-                }
+                    Err(s) => ScanLineAction::ReportError(format!("Unable to parse as SQL: '{}' ({})", 
+                            std::str::from_utf8(&self.current_statement).unwrap_or("invalid utf8"), s))
+                };
+                self.current_statement.clear();
+                scan_result
             } else { ScanLineAction::Pass }
         }
     }
