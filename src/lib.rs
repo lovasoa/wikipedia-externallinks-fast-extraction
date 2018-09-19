@@ -126,7 +126,7 @@ enum ScanLineAction {
 impl ScanState {
     fn new() -> ScanState {
         ScanState {
-            current_statement: Vec::with_capacity(1024),
+            current_statement: Vec::with_capacity(1_000_000),
             target_field: None,
         }
     }
