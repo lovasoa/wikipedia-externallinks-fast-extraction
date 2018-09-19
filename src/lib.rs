@@ -137,28 +137,32 @@ impl ScanState {
         } else {
             self.current_statement.append(line_bytes);
             if is_complete_statement(&self.current_statement) {
-                let parsed_sql = parser::parse_query_bytes(&self.current_statement);
-                let scan_result = match parsed_sql {
-                    Ok(sql) => match extract_data(sql) {
-                        InsertData(data) => {
-                            if let Some(i) = self.target_field {
-                                ScanLineAction::ExtractFrom(data, i)
-                            } else {
-                                ScanLineAction::ReportError("Insert statement before create table".into())
-                            }
-                        },
-                        ExtractedSql::CreateTableData(index) => {
-                            self.target_field = Some(index);
-                            ScanLineAction::Pass
-                        },
-                        ExtractedSql::Error(err) => ScanLineAction::ReportError(err),
-                    },
-                    Err(s) => ScanLineAction::ReportError(format!("Unable to parse as SQL: '{}' ({})", 
-                            std::str::from_utf8(&self.current_statement).unwrap_or("invalid utf8"), s))
-                };
+                let scan_result = self.scan_result();
                 self.current_statement.clear();
                 scan_result
             } else { ScanLineAction::Pass }
+        }
+    }
+
+    fn scan_result(&mut self) -> ScanLineAction {
+        let parsed_sql = parser::parse_query_bytes(&self.current_statement);
+        match parsed_sql {
+            Ok(sql) => match extract_data(sql) {
+                InsertData(data) => {
+                    if let Some(i) = self.target_field {
+                        ScanLineAction::ExtractFrom(data, i)
+                    } else {
+                        ScanLineAction::ReportError("Insert statement before create table".into())
+                    }
+                },
+                ExtractedSql::CreateTableData(index) => {
+                    self.target_field = Some(index);
+                    ScanLineAction::Pass
+                },
+                ExtractedSql::Error(err) => ScanLineAction::ReportError(err),
+            },
+            Err(s) => ScanLineAction::ReportError(format!("Unable to parse as SQL: '{}' ({})", 
+                    std::str::from_utf8(&self.current_statement).unwrap_or("invalid utf8"), s))
         }
     }
 }
