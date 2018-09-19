@@ -9,8 +9,9 @@ use nom_sql::{
     SqlQuery::CreateTable,
     Table,
 };
+
+use std::io;
 use std::io::BufRead;
-use std::io::Error;
 use std::iter::empty;
 use ::ExtractedSql::InsertData;
 use nom_sql::CreateTableStatement;
@@ -161,15 +162,23 @@ impl ScanState {
                 },
                 ExtractedSql::Error(err) => ScanLineAction::ReportError(err),
             },
-            Err(s) => ScanLineAction::ReportError(format!("Unable to parse as SQL: '{}' ({})", 
-                    std::str::from_utf8(&self.current_statement).unwrap_or("invalid utf8"), s))
+            Err(s) => {
+                let source_sql: String = std::str::from_utf8(&self.current_statement)
+                    .unwrap_or("invalid utf8")
+                    .chars()
+                    .take(150)
+                    .chain(" [...]".chars())
+                    .collect();
+                let err_string = format!("{} (while parsing: {})", s, source_sql);
+                ScanLineAction::ReportError(err_string)
+            }
         }
     }
 }
 
 fn scan_binary_lines(
     scan_state: &mut ScanState,
-    mut line_result: Result<Vec<u8>, Error>,
+    mut line_result: Result<Vec<u8>, io::Error>,
 ) -> Option<Box<Iterator<Item=Result<String, String>>>> {
     match line_result {
         Ok(ref mut line_bytes) => {
