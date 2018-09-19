@@ -171,5 +171,5 @@ fn scan_binary_lines(
 pub fn iter_string_urls<T: BufRead>(input: T) -> impl Iterator<Item=Result<String, String>> {
     input.split(b'\n')
         .scan(ScanState::new(), scan_binary_lines)
-        .flatten()
+        .flat_map(|urls| urls)
 }

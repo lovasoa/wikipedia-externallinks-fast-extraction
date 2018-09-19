@@ -24,7 +24,9 @@ INSERT INTO `externallinks` VALUES
     (2,100161,'http://example2.com/','','')
 ;
     "#;
-    let urls: Vec<_> = iter_string_urls(dump).flatten().collect();
+    let urls: Vec<String> = iter_string_urls(dump)
+        .filter_map(|result| result.ok())
+        .collect();
     let expected_urls = vec![
         "http://example.com/".to_string(),
         "http://example2.com/".to_string()
