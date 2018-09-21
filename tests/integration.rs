@@ -1,6 +1,8 @@
 extern crate wikipedia_externallinks_fast_extraction;
+extern crate rayon;
 
 use wikipedia_externallinks_fast_extraction::iter_string_urls;
+use rayon::prelude::*;
 
 #[test]
 fn frwiki_two_urls() {
@@ -25,7 +27,7 @@ INSERT INTO `externallinks` VALUES
 ;
     "#;
     let urls: Vec<String> = iter_string_urls(dump)
-        .filter_map(|result| result.ok())
+        .flat_map(|result| result.ok())
         .collect();
     let expected_urls = vec![
         "http://example.com/".to_string(),

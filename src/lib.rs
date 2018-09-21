@@ -12,12 +12,14 @@ use nom_sql::{
 };
 
 use std::io;
+use std::thread;
 use std::io::BufRead;
 use ::ExtractedSql::InsertData;
 use nom_sql::CreateTableStatement;
 use nom_sql::ColumnSpecification;
 use nom_sql::Column;
 use rayon::prelude::*;
+use rayon::iter::ParallelBridge;
 use std::sync::mpsc::channel;
 
 struct TargetColumn<'a> {
@@ -119,7 +121,7 @@ struct ScanState {
 enum ScanLineAction {
     Pass,
     ReportError(String),
-    ExtractFrom(Vec<Vec<Literal>>, usize),
+    ExtractFrom(Vec<u8>, usize),
 }
 
 impl ScanState {
@@ -136,72 +138,96 @@ impl ScanState {
         } else {
             self.current_statement.append(line_bytes);
             if is_complete_statement(&self.current_statement) {
-                let scan_result = self.scan_result();
+                let scan_result = self.extract_scan_result();
                 self.current_statement.clear();
                 scan_result
             } else { ScanLineAction::Pass }
         }
     }
-
-    fn scan_result(&mut self) -> ScanLineAction {
-        let parsed_sql = parser::parse_query_bytes(&self.current_statement);
-        match parsed_sql {
-            Ok(sql) => match extract_data(sql) {
-                InsertData(data) => {
-                    if let Some(i) = self.target_field {
-                        ScanLineAction::ExtractFrom(data, i)
-                    } else {
+    
+    fn extract_scan_result(&mut self) -> ScanLineAction {
+        if let Some(target) = self.target_field {
+            ScanLineAction::ExtractFrom(self.current_statement.clone(), target)
+        } else {
+            match parser::parse_query_bytes(&self.current_statement) {
+                Ok(sql) => match extract_data(sql) {
+                    InsertData(data) => {
                         ScanLineAction::ReportError("Insert statement before create table".into())
-                    }
+                    },
+                    ExtractedSql::CreateTableData(index) => {
+                        self.target_field = Some(index);
+                        ScanLineAction::Pass
+                    },
+                    ExtractedSql::Error(err) => ScanLineAction::ReportError(err),
                 },
-                ExtractedSql::CreateTableData(index) => {
-                    self.target_field = Some(index);
-                    ScanLineAction::Pass
-                },
-                ExtractedSql::Error(err) => ScanLineAction::ReportError(err),
-            },
-            Err(s) => {
-                let source_sql: String = std::str::from_utf8(&self.current_statement)
-                    .unwrap_or("invalid utf8")
-                    .chars()
-                    .take(150)
-                    .chain(" [...]".chars())
-                    .collect();
-                let err_string = format!("{} (while parsing: {})", s, source_sql);
-                ScanLineAction::ReportError(err_string)
+                Err(s) => {
+                    let source_sql: String = std::str::from_utf8(&self.current_statement)
+                        .unwrap_or("invalid utf8")
+                        .chars()
+                        .take(150)
+                        .chain(" [...]".chars())
+                        .collect();
+                    let err_string = format!("{} (while parsing: {})", s, source_sql);
+                    ScanLineAction::ReportError(err_string)
+                }
             }
         }
+    }
+}
+
+fn parse_insert(sql_statement: &Vec<u8>)
+  -> Result<Vec<Vec<Literal>>, String> {
+    match parser::parse_query_bytes(sql_statement) {
+        Ok(sql) =>
+            match extract_data(sql) {
+                InsertData(data) => Ok(data),
+                ExtractedSql::CreateTableData(_) => Err(format!("Unexpected CREATE TABLE")),
+                ExtractedSql::Error(err) => Err(err),
+            },
+        Err(err) => Err(err.to_string())
     }
 }
 
 fn scan_binary_lines(
     scan_state: &mut ScanState,
     mut line_result: Result<Vec<u8>, io::Error>,
-) -> impl ParallelIterator<Item=Result<String, String>> {
-    let mut urls = None;
-    let mut error = None;
-    match line_result {
-        Ok(ref mut line_bytes) => {
-            match scan_state.add_line(line_bytes) {
-                ScanLineAction::ExtractFrom(data, i) => urls = Some(extract_urls_from_insert_data(data, i)),
-                ScanLineAction::ReportError(s) => error = Some(s),
-                ScanLineAction::Pass => ()
-            }
-        }
-        Err(err) => error = Some(format!("Unable to read line: {}", err))
-    }
-    urls.into_par_iter()
-        .flatten()
-        .chain(error.map(|e| Err(e)))
+) -> Option<ScanLineAction> {
+    let action = match line_result {
+        Ok(ref mut line_bytes) => scan_state.add_line(line_bytes),
+        Err(err) => ScanLineAction::ReportError(format!("Unable to read line: {}", err))
+    };
+    Some(action)
 }
 
-pub fn iter_string_urls<T: BufRead>(input: T) -> impl Iterator<Item=Result<String, String>> {
-    let (sender, receiver) = channel();
-    let mut scan_state = ScanState::new();
-    for line_result in input.split(b'\n') {
-        scan_binary_lines(&mut scan_state, line_result)
-            .for_each_with(sender.clone(),
-                |local_sender, url_res| local_sender.send(url_res).unwrap());
-    }
-    receiver.into_iter()
+pub fn iter_string_urls<T: BufRead>(input: T)
+    -> impl ParallelIterator<Item=Result<String, String>> {
+    let rx = {
+        let (tx, rx) = channel();
+
+        input.split(b'\n')
+            .scan(ScanState::new(), scan_binary_lines)
+            .for_each(|x| tx.send(x).unwrap());
+
+        rx
+    };
+
+    rx.into_iter()
+        .par_bridge()
+        .flat_map(|action| {
+           let mut res = None;
+           let mut err = None;
+            match action {
+               ScanLineAction::ExtractFrom(bytes, target) => {
+                   match parse_insert(&bytes) {
+                       Ok(data) => {res = Some(extract_urls_from_insert_data(data, target))},
+                       Err(s) => {err = Some(s)},
+                   }
+               },
+               ScanLineAction::ReportError(s) => {err = Some(s)}, 
+               ScanLineAction::Pass => (),
+            };
+            res.into_par_iter()
+                .flatten()
+                .chain(err.into_par_iter().map(|s| Err(s)))
+        })
 }
