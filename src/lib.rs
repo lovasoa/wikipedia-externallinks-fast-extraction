@@ -92,7 +92,7 @@ fn extract_target_string(mut values: Vec<Literal>, target: usize) -> Result<Stri
     }
 }
 
-fn extract_urls_from_insert_data(
+pub fn extract_urls_from_insert_data(
     data: Vec<Vec<Literal>>,
     target_index: usize,
 ) -> impl ParallelIterator<Item=Result<String, String>> {
