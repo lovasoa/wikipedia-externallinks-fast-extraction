@@ -13,6 +13,11 @@ use nom_sql::{
 
 use std::io;
 use std::io::BufRead;
+<<<<<<< HEAD
+use std::iter::empty;
+=======
+use std::io::Error;
+>>>>>>> Implement parallelism
 use ::ExtractedSql::InsertData;
 use nom_sql::CreateTableStatement;
 use nom_sql::ColumnSpecification;
@@ -176,10 +181,15 @@ impl ScanState {
 
 fn scan_binary_lines(
     scan_state: &mut ScanState,
+<<<<<<< HEAD
     mut line_result: Result<Vec<u8>, io::Error>,
+) -> Option<Box<Iterator<Item=Result<String, String>>>> {
+=======
+    mut line_result: Result<Vec<u8>, Error>,
 ) -> impl ParallelIterator<Item=Result<String, String>> {
     let mut urls = None;
     let mut error = None;
+>>>>>>> Implement parallelism
     match line_result {
         Ok(ref mut line_bytes) => {
             match scan_state.add_line(line_bytes) {
