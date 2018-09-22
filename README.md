@@ -23,7 +23,7 @@ outputs an exhaustive list of all outlinks from wikipedia to other sites.
 
 #### Download
 ```sh
-wget 'https://github.com/lovasoa/wikipedia-externallinks-fast-extraction/releases/download/0.1.4/wikipedia-externallinks-fast-extraction'
+wget 'https://github.com/lovasoa/wikipedia-externallinks-fast-extraction/releases/download/0.1.5/wikipedia-externallinks-fast-extraction'
 chmod +x wikipedia-externallinks-fast-extraction
 ```
 
