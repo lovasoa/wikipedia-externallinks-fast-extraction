@@ -1,35 +1,33 @@
 extern crate nom_sql;
 extern crate rayon;
 
+use ::ExtractedSql::InsertData;
 use nom_sql::{
     InsertStatement,
     Literal,
     parser,
     parser::SqlQuery,
-    SqlQuery::Insert,
     SqlQuery::CreateTable,
+    SqlQuery::Insert,
     Table,
 };
-
-use std::io;
-use std::thread;
-use std::io::BufRead;
-use ::ExtractedSql::InsertData;
-use nom_sql::CreateTableStatement;
-use nom_sql::ColumnSpecification;
 use nom_sql::Column;
-use rayon::prelude::*;
+use nom_sql::ColumnSpecification;
+use nom_sql::CreateTableStatement;
 use rayon::iter::ParallelBridge;
+use rayon::prelude::*;
+use std::io;
+use std::io::BufRead;
 use std::sync::mpsc::channel;
 
 struct TargetColumn<'a> {
     name: &'a str,
-    table: &'a str
+    table: &'a str,
 }
 
 const TARGET_COLUMN: TargetColumn<'static> = TargetColumn {
     name: "el_to",
-    table: "externallinks"
+    table: "externallinks",
 };
 
 enum ExtractedSql {
@@ -49,7 +47,7 @@ fn extract_data(query: SqlQuery) -> ExtractedSql {
             } else {
                 ExtractedSql::Error(format!("Wrong table: '{}'", name))
             }
-        },
+        }
         CreateTable(CreateTableStatement {
                         table: Table { name, .. },
                         fields,
@@ -118,12 +116,6 @@ struct ScanState {
     target_field: Option<usize>,
 }
 
-enum ScanLineAction {
-    Pass,
-    ReportError(String),
-    ExtractFrom(Vec<u8>, usize),
-}
-
 impl ScanState {
     fn new() -> ScanState {
         ScanState {
@@ -144,20 +136,20 @@ impl ScanState {
             } else { ScanLineAction::Pass }
         }
     }
-    
+
     fn extract_scan_result(&mut self) -> ScanLineAction {
         if let Some(target) = self.target_field {
             ScanLineAction::ExtractFrom(self.current_statement.clone(), target)
         } else {
             match parser::parse_query_bytes(&self.current_statement) {
                 Ok(sql) => match extract_data(sql) {
-                    InsertData(data) => {
+                    InsertData(_) => {
                         ScanLineAction::ReportError("Insert statement before create table".into())
-                    },
+                    }
                     ExtractedSql::CreateTableData(index) => {
                         self.target_field = Some(index);
                         ScanLineAction::Pass
-                    },
+                    }
                     ExtractedSql::Error(err) => ScanLineAction::ReportError(err),
                 },
                 Err(s) => {
@@ -175,8 +167,34 @@ impl ScanState {
     }
 }
 
+enum ScanLineAction {
+    Pass,
+    ReportError(String),
+    ExtractFrom(Vec<u8>, usize),
+}
+
+impl ScanLineAction {
+    fn into_par_iter(self) -> impl ParallelIterator<Item=Result<String, String>> {
+        let mut res = None;
+        let mut err = None;
+        match self {
+            ScanLineAction::ExtractFrom(bytes, target) => {
+                match parse_insert(&bytes) {
+                    Ok(data) => { res = Some(extract_urls_from_insert_data(data, target)) }
+                    Err(s) => { err = Some(s) }
+                }
+            }
+            ScanLineAction::ReportError(s) => { err = Some(s) }
+            ScanLineAction::Pass => (),
+        };
+        res.into_par_iter()
+            .flatten()
+            .chain(err.into_par_iter().map(|s| Err(s)))
+    }
+}
+
 fn parse_insert(sql_statement: &Vec<u8>)
-  -> Result<Vec<Vec<Literal>>, String> {
+                -> Result<Vec<Vec<Literal>>, String> {
     match parser::parse_query_bytes(sql_statement) {
         Ok(sql) =>
             match extract_data(sql) {
@@ -200,7 +218,7 @@ fn scan_binary_lines(
 }
 
 pub fn iter_string_urls<T: BufRead>(input: T)
-    -> impl ParallelIterator<Item=Result<String, String>> {
+                                    -> impl ParallelIterator<Item=Result<String, String>> {
     let rx = {
         let (tx, rx) = channel();
 
@@ -213,21 +231,5 @@ pub fn iter_string_urls<T: BufRead>(input: T)
 
     rx.into_iter()
         .par_bridge()
-        .flat_map(|action| {
-           let mut res = None;
-           let mut err = None;
-            match action {
-               ScanLineAction::ExtractFrom(bytes, target) => {
-                   match parse_insert(&bytes) {
-                       Ok(data) => {res = Some(extract_urls_from_insert_data(data, target))},
-                       Err(s) => {err = Some(s)},
-                   }
-               },
-               ScanLineAction::ReportError(s) => {err = Some(s)}, 
-               ScanLineAction::Pass => (),
-            };
-            res.into_par_iter()
-                .flatten()
-                .chain(err.into_par_iter().map(|s| Err(s)))
-        })
+        .flat_map(ScanLineAction::into_par_iter)
 }
