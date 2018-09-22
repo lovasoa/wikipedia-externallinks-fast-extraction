@@ -1,0 +1,9 @@
+{
+  "name" : "wikipedia-externallinks-fast-extraction",
+  "title" : "External links list",
+  "description" : "Extracts a list of all links from wikipedia to other websites. Useful for creating a web crawler seedlist.",
+  "url" : "https://github.com/lovasoa/wikipedia-externallinks-fast-extraction",
+  "keywords" : "seedlist, links, seo, crawling, web",
+  "author" : "Ophir LOJKINE",
+  "repository" : "https://github.com/lovasoa/wikipedia-externallinks-fast-extraction.git"
+}
